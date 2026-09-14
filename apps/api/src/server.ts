@@ -15,29 +15,54 @@ import { pdfRouter } from './modules/pdf-processor/pdf.controller';
 import { uploadRouter } from './modules/upload/upload.controller';
 import { seedDatabase } from './db/seed';
 
-const app = express();
+export const app = express();
 
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Ensure DB is initialized
+let isSeeded = false;
+app.use(async (_req, _res, next) => {
+  try {
+    await db.init();
+    if (!isSeeded) {
+      const usersCount = await db.query('SELECT COUNT(*) as count FROM users');
+      if (parseInt(usersCount.rows[0]?.count || '0', 10) === 0) {
+        await seedDatabase();
+      }
+      isSeeded = true;
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Static uploads
 app.use('/uploads', express.static(config.uploadDir));
 
-// API Routes
-app.use('/api/auth', authRouter);
-app.use('/api/categories', categoryRouter);
-app.use('/api/quizzes', quizRouter);
-app.use('/api/questions', questionRouter);
-app.use('/api/attempts', attemptRouter);
-app.use('/api/analytics', analyticsRouter);
-app.use('/api/audit-logs', auditRouter);
-app.use('/api/pdf', pdfRouter);
-app.use('/api/upload', uploadRouter);
+// API Routes supporting standard, direct, and Netlify function paths
+const routePrefixes = (endpoint: string) => [
+  `/api/${endpoint}`,
+  `/${endpoint}`,
+  `/.netlify/functions/api/${endpoint}`,
+  `/.netlify/functions/api/api/${endpoint}`
+];
+
+app.use(routePrefixes('auth'), authRouter);
+app.use(routePrefixes('categories'), categoryRouter);
+app.use(routePrefixes('quizzes'), quizRouter);
+app.use(routePrefixes('questions'), questionRouter);
+app.use(routePrefixes('attempts'), attemptRouter);
+app.use(routePrefixes('analytics'), analyticsRouter);
+app.use(routePrefixes('audit-logs'), auditRouter);
+app.use(routePrefixes('pdf'), pdfRouter);
+app.use(routePrefixes('upload'), uploadRouter);
 
 // Health check
-app.get('/api/health', (_req: Request, res: Response) => {
+app.get(['/api/health', '/health', '/.netlify/functions/api/health', '/.netlify/functions/api/api/health'], (_req: Request, res: Response) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -46,7 +71,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
 });
 
 // One-click reseed endpoint (convenience for demo/testing)
-app.post('/api/seed', async (_req: Request, res: Response) => {
+app.post(['/api/seed', '/seed', '/.netlify/functions/api/seed'], async (_req: Request, res: Response) => {
   try {
     await seedDatabase();
     res.json({ success: true, message: 'Database seeded successfully' });
@@ -60,13 +85,12 @@ const webDistPath = path.resolve(__dirname, '../../web/dist');
 if (fs.existsSync(webDistPath)) {
   app.use(express.static(webDistPath));
   app.get('*', (req: Request, res: Response, next: NextFunction) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/.netlify')) {
       return next();
     }
     res.sendFile(path.join(webDistPath, 'index.html'));
   });
 }
-
 
 // Global Error Handler
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -77,28 +101,12 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
-// Boot server
-async function startServer() {
-  try {
-    console.log(' Starting QuizForge Backend API...');
-    await db.init();
-
-    // Auto-seed if database is empty
-    const usersCount = await db.query('SELECT COUNT(*) as count FROM users');
-    if (parseInt(usersCount.rows[0].count || '0', 10) === 0) {
-      console.log(' Empty database detected. Running initial seed data...');
-      await seedDatabase();
-    }
-
-    app.listen(config.port, '0.0.0.0', () => {
-      console.log(` QuizForge API server running on http://127.0.0.1:${config.port}`);
-    });
-  } catch (err) {
-    console.error('❌ Failed to start server:', err);
-    process.exit(1);
-  }
+// Standalone server boot (skipped in serverless environments)
+if (!config.isServerless) {
+  app.listen(config.port, '0.0.0.0', () => {
+    console.log(` QuizForge API server running on http://127.0.0.1:${config.port}`);
+  });
 }
 
-startServer();
-
 export default app;
+
