@@ -1,8 +1,9 @@
-import fs from 'fs';
+﻿import fs from 'fs';
 import path from 'path';
 import { PGlite } from '@electric-sql/pglite';
 import { Pool } from 'pg';
 import { config } from '../config';
+import { SCHEMA_SQL } from './schema';
 
 interface QueryResult<T = any> {
   rows: T[];
@@ -24,13 +25,16 @@ class DatabaseManager implements DbClient {
     if (this.initialized) return;
 
     if (config.databaseUrl) {
-      console.log(' Connecting to external PostgreSQL database...');
-      this.pgPool = new Pool({ connectionString: config.databaseUrl });
+      console.log('Connecting to external PostgreSQL database...');
+      this.pgPool = new Pool({
+        connectionString: config.databaseUrl,
+        ssl: config.databaseUrl.includes('localhost') ? false : { rejectUnauthorized: false }
+      });
     } else if (process.env.NODE_ENV === 'test') {
-      console.log(' Initializing isolated in-memory PostgreSQL (PGlite)...');
+      console.log('Initializing isolated in-memory PostgreSQL (PGlite)...');
       this.pgliteInstance = new PGlite();
     } else {
-      console.log(' Initializing embedded PostgreSQL (PGlite)...');
+      console.log('Initializing embedded PostgreSQL (PGlite)...');
       try {
         if (!fs.existsSync(config.pgliteDir)) {
           fs.mkdirSync(config.pgliteDir, { recursive: true });
@@ -49,11 +53,9 @@ class DatabaseManager implements DbClient {
       }
     }
 
-    // Run schema
-    const schemaPath = path.resolve(__dirname, 'schema.sql');
-    if (fs.existsSync(schemaPath)) {
-      const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
-      await this.execMulti(schemaSql);
+    // Always run schema directly from compiled TypeScript SCHEMA_SQL
+    try {
+      await this.execMulti(SCHEMA_SQL);
       
       // Auto-migrate new columns for existing databases
       try {
@@ -75,10 +77,11 @@ class DatabaseManager implements DbClient {
         // Ignored if column already exists or not supported
       }
 
-      console.log(' PostgreSQL Schema verified & migrated successfully.');
+      console.log('PostgreSQL Schema verified & migrated successfully.');
+    } catch (schemaErr: any) {
+      console.error('Failed to initialize database schema:', schemaErr);
+      throw schemaErr;
     }
-
-
 
     this.initialized = true;
   }

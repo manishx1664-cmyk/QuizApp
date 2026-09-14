@@ -1,4 +1,4 @@
-import express, { Request, Response, NextFunction } from 'express';
+﻿import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
@@ -18,7 +18,7 @@ import { seedDatabase } from './db/seed';
 export const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -36,42 +36,63 @@ app.use(async (_req, _res, next) => {
     }
     next();
   } catch (err) {
+    console.error('Database initialization/seeding error:', err);
     next(err);
   }
+});
+
+// Normalize URL paths for Netlify Functions and standard /api prefixes
+app.use((req, _res, next) => {
+  let normalized = req.url;
+  
+  if (normalized.startsWith('/.netlify/functions/api')) {
+    normalized = normalized.substring('/.netlify/functions/api'.length) || '/';
+  }
+  if (normalized.startsWith('/api')) {
+    normalized = normalized.substring('/api'.length) || '/';
+  }
+  
+  req.url = normalized;
+  next();
 });
 
 // Static uploads
 app.use('/uploads', express.static(config.uploadDir));
 
-// API Routes supporting standard, direct, and Netlify function paths
-const routePrefixes = (endpoint: string) => [
-  `/api/${endpoint}`,
-  `/${endpoint}`,
-  `/.netlify/functions/api/${endpoint}`,
-  `/.netlify/functions/api/api/${endpoint}`
-];
+// Standard API Routes
+app.use('/auth', authRouter);
+app.use('/categories', categoryRouter);
+app.use('/quizzes', quizRouter);
+app.use('/questions', questionRouter);
+app.use('/attempts', attemptRouter);
+app.use('/analytics', analyticsRouter);
+app.use('/audit-logs', auditRouter);
+app.use('/pdf', pdfRouter);
+app.use('/upload', uploadRouter);
 
-app.use(routePrefixes('auth'), authRouter);
-app.use(routePrefixes('categories'), categoryRouter);
-app.use(routePrefixes('quizzes'), quizRouter);
-app.use(routePrefixes('questions'), questionRouter);
-app.use(routePrefixes('attempts'), attemptRouter);
-app.use(routePrefixes('analytics'), analyticsRouter);
-app.use(routePrefixes('audit-logs'), auditRouter);
-app.use(routePrefixes('pdf'), pdfRouter);
-app.use(routePrefixes('upload'), uploadRouter);
+// Also mount routes with /api prefix in case URL wasn't rewritten
+app.use('/api/auth', authRouter);
+app.use('/api/categories', categoryRouter);
+app.use('/api/quizzes', quizRouter);
+app.use('/api/questions', questionRouter);
+app.use('/api/attempts', attemptRouter);
+app.use('/api/analytics', analyticsRouter);
+app.use('/api/audit-logs', auditRouter);
+app.use('/api/pdf', pdfRouter);
+app.use('/api/upload', uploadRouter);
 
 // Health check
-app.get(['/api/health', '/health', '/.netlify/functions/api/health', '/.netlify/functions/api/api/health'], (_req: Request, res: Response) => {
+app.get(['/health', '/api/health', '/.netlify/functions/api/health'], (_req: Request, res: Response) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    service: 'QuizForge Backend API'
+    service: 'QuizForge Backend API',
+    isServerless: config.isServerless
   });
 });
 
 // One-click reseed endpoint (convenience for demo/testing)
-app.post(['/api/seed', '/seed', '/.netlify/functions/api/seed'], async (_req: Request, res: Response) => {
+app.post(['/seed', '/api/seed', '/.netlify/functions/api/seed'], async (_req: Request, res: Response) => {
   try {
     await seedDatabase();
     res.json({ success: true, message: 'Database seeded successfully' });
@@ -104,9 +125,8 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 // Standalone server boot (skipped in serverless environments)
 if (!config.isServerless) {
   app.listen(config.port, '0.0.0.0', () => {
-    console.log(` QuizForge API server running on http://127.0.0.1:${config.port}`);
+    console.log(`QuizForge API server running on http://127.0.0.1:${config.port}`);
   });
 }
 
 export default app;
-
