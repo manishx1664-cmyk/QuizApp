@@ -1,4 +1,4 @@
-﻿import fs from 'fs';
+import fs from 'fs';
 import path from 'path';
 import { PGlite } from '@electric-sql/pglite';
 import { Pool } from 'pg';
