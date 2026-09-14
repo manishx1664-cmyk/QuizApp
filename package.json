@@ -1,0 +1,23 @@
+{
+  "name": "quizforge",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n \"API,WEB\" -c \"blue,green\" \"npm run dev --workspace=@quizforge/api\" \"npm run dev --workspace=@quizforge/web\"",
+    "build:shared": "npm run build --workspace=@quizforge/shared",
+    "build:api": "npm run build --workspace=@quizforge/api",
+    "build:web": "npm run build --workspace=@quizforge/web",
+    "build": "npm run build:shared && npm run build:api && npm run build:web",
+    "start": "node apps/api/dist/server.js",
+    "test": "npm run test --workspace=@quizforge/api",
+    "seed": "npm run seed --workspace=@quizforge/api"
+
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
