@@ -13,7 +13,7 @@ export class AnalyticsService {
         COUNT(*) FILTER (WHERE status = 'published') as published,
         COUNT(*) FILTER (WHERE status = 'draft') as drafts
       FROM quizzes
-      WHERE ($1::text IS NULL OR created_by = $1)
+      WHERE ($1::text IS NULL OR created_by = $1 OR created_by IS NULL)
     `,
       [adminParam]
     );
@@ -27,7 +27,7 @@ export class AnalyticsService {
       SELECT COUNT(DISTINCT COALESCE(a.user_id, a.learner_name)) as total 
       FROM attempts a
       JOIN quizzes qz ON qz.id = a.quiz_id
-      WHERE ($1::text IS NULL OR qz.created_by = $1)
+      WHERE ($1::text IS NULL OR qz.created_by = $1 OR qz.created_by IS NULL)
     `,
       [adminParam]
     );
@@ -43,7 +43,7 @@ export class AnalyticsService {
       FROM attempts a
       JOIN quizzes qz ON qz.id = a.quiz_id
       WHERE a.status IN ('submitted', 'auto_submitted')
-        AND ($1::text IS NULL OR qz.created_by = $1)
+        AND ($1::text IS NULL OR qz.created_by = $1 OR qz.created_by IS NULL)
     `,
       [adminParam]
     );
@@ -67,7 +67,7 @@ export class AnalyticsService {
       FROM attempts a
       JOIN quizzes qz ON qz.id = a.quiz_id
       WHERE a.status IN ('submitted', 'auto_submitted')
-        AND ($1::text IS NULL OR qz.created_by = $1)
+        AND ($1::text IS NULL OR qz.created_by = $1 OR qz.created_by IS NULL)
       GROUP BY 1
     `,
       [adminParam]
@@ -91,8 +91,8 @@ export class AnalyticsService {
       LEFT JOIN users u ON u.id = a.user_id
       LEFT JOIN quizzes q ON q.id = a.quiz_id
       WHERE a.status IN ('submitted', 'auto_submitted')
-        AND ($1::text IS NULL OR q.created_by = $1)
-      ORDER BY a.submitted_at DESC LIMIT 10
+        AND ($1::text IS NULL OR q.created_by = $1 OR q.created_by IS NULL)
+      ORDER BY COALESCE(a.submitted_at, a.started_at) DESC LIMIT 10
     `,
       [adminParam]
     );
@@ -128,7 +128,7 @@ export class AnalyticsService {
       JOIN attempt_answers aa ON aa.question_id = q.id
       JOIN attempts a ON a.id = aa.attempt_id
       WHERE a.status IN ('submitted', 'auto_submitted')
-        AND ($1::text IS NULL OR qz.created_by = $1)
+        AND ($1::text IS NULL OR qz.created_by = $1 OR qz.created_by IS NULL)
       GROUP BY q.id, qz.title
       HAVING COUNT(aa.id) > 0
       ORDER BY (COUNT(aa.id) FILTER (WHERE aa.is_correct = true)::float / COUNT(aa.id)) ASC
@@ -167,4 +167,3 @@ export class AnalyticsService {
     };
   }
 }
-

@@ -214,10 +214,10 @@ export const AdminDashboardPage: React.FC = () => {
                 >
                   <div>
                     <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                      {att.userName || 'Learner'}
+                      {att.learnerName || att.userName || 'Learner'}
                     </h4>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {att.quizTitle}
+                      {att.quizTitle} • {new Date(att.submittedAt || att.startedAt).toLocaleDateString()}
                     </p>
                   </div>
                   <div className="text-right">

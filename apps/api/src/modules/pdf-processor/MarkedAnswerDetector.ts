@@ -8,17 +8,17 @@ export interface MarkedAnswerDetectionResult {
 }
 
 export class MarkedAnswerDetector {
-  // Checkmark symbols
-  private static CHECKMARK_REGEX = /[\u2713\u2714\u221A]|\[x\]|\[X\]|\(x\)|\(X\)/;
+  // Checkmark symbols (explicit checkmarks like ✓, ✔, √, [x], (x) only)
+  private static CHECKMARK_REGEX = /(?:^|\s+)[\u2713\u2714\u221A]|\b\[[xX✓✔]\]|\b\([xX✓✔]\)|[\u2713\u2714\u221A]\s*$/;
   
-  // Circle symbols (filled circle)
-  private static CIRCLE_REGEX = /[\u25CF\u25C9\u25CE]|\[\•\]|\(\•\)/;
+  // Circle symbols (explicit filled circle markers)
+  private static CIRCLE_REGEX = /(?:^|\s+)[\u25CF\u25C9\u25CE]|\b\[\•\]|\b\(\•\)|[\u25CF\u25C9\u25CE]\s*$/;
 
-  // Explicit label: (Correct), [Correct], (Ans: B)
-  private static EXPLICIT_LABEL_REGEX = /\(?\[?(?:Correct|Ans|Answer|Right)\]?\)?/i;
+  // Explicit label: (Correct), [Correct], (Ans), [Ans], {Correct}, - Correct
+  private static EXPLICIT_LABEL_REGEX = /(?:\[|\(|\{)\s*(?:correct|ans|answer|right|correct\s*answer)\s*(?:\]|\)|\})|\s*(?:-\s*|–\s*|\:\s*)(?:correct|answer)\s*$/i;
 
-  // Markdown bold or asterisks wrapping option: **text** or * at end
-  private static BOLD_REGEX = /\*\*(.+?)\*\*|__(.+?)__/;
+  // Whole option bolded or marked with leading/trailing asterisk
+  private static WHOLE_BOLD_REGEX = /^\s*(?:\*\*(.+?)\*\*|__(.+?)__)\s*$/;
   private static ASTERISK_MARK_REGEX = /(?:^\s*\*|\*\s*$)/;
 
   public static inspectOptionText(rawOptionText: string): MarkedAnswerDetectionResult {
@@ -41,15 +41,15 @@ export class MarkedAnswerDetector {
       confidence = 0.90;
       cleanText = cleanText.replace(this.CIRCLE_REGEX, '').trim();
     }
-    // Check explicit labels: (Correct), [Correct]
+    // Check explicit bracketed/tagged labels: (Correct), [Correct], (Ans)
     else if (this.EXPLICIT_LABEL_REGEX.test(cleanText)) {
       hasMarking = true;
       method = 'explicit_label';
       confidence = 0.95;
       cleanText = cleanText.replace(this.EXPLICIT_LABEL_REGEX, '').trim();
     }
-    // Check markdown bold or asterisk marker
-    else if (this.BOLD_REGEX.test(cleanText) || this.ASTERISK_MARK_REGEX.test(cleanText)) {
+    // Check whole option bold or asterisk marker
+    else if (this.WHOLE_BOLD_REGEX.test(cleanText) || this.ASTERISK_MARK_REGEX.test(cleanText)) {
       hasMarking = true;
       method = 'marked_bold';
       confidence = 0.85;
@@ -58,7 +58,7 @@ export class MarkedAnswerDetector {
 
     return {
       hasMarking,
-      cleanText,
+      cleanText: cleanText.trim(),
       method,
       confidence
     };

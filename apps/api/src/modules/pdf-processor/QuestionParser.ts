@@ -12,10 +12,9 @@ export interface RawParsedQuestion {
 }
 
 export class QuestionParser {
-  // Regex to detect start of a question:
-  // "1. ", "1) ", "Q1. ", "Q1: ", "Question 1. ", "Question 1: ", "1 - "
   private static QUESTION_START_REGEX = /(?:^|\n)\s*(?:(?:Question|Q)\s*)?(\d+)[\.\:\)\-]\s+/i;
-  private static EXPLANATION_REGEX = /(?:Explanation|Exp|Reason|Rationale|Note)\s*[\:\-]\s*(.+)$/i;
+  private static EXPLANATION_REGEX = /(?:Explanation|Exp|Reason|Rationale|Note)\s*[\:\-]\s*(.+)$/is;
+  private static ANSWER_LINE_REGEX = /(?:^|\n)\s*(?:Correct\s*(?:Option|Answer)?|Ans(?:wer)?|Right\s*Answer|Key)\s*[\:\-\.]\s*\(?([A-Da-d])\)?(?:\s|$)/i;
 
   public static parseQuestions(contentWithoutAnswerKey: string): RawParsedQuestion[] {
     const rawQuestions: RawParsedQuestion[] = [];
@@ -42,46 +41,53 @@ export class QuestionParser {
     for (let i = 0; i < matches.length; i++) {
       const current = matches[i];
       const nextIndex = i + 1 < matches.length ? matches[i + 1].startIndex : text.length;
-      const block = text.slice(current.headerEndIndex, nextIndex).trim();
+      let block = text.slice(current.headerEndIndex, nextIndex).trim();
 
-      // In this block, separate question prompt from options and explanation
-      // Options typically start with A. or (A) or a)
+      // Check if block contains an explicit answer line: "Answer: B" or "Ans: C"
+      let explicitAnswerLetter: string | undefined;
+      const answerMatch = block.match(this.ANSWER_LINE_REGEX);
+      if (answerMatch && answerMatch[1]) {
+        explicitAnswerLetter = answerMatch[1].toUpperCase();
+        // Remove answer line from the block to prevent option corruption
+        block = block.replace(this.ANSWER_LINE_REGEX, '\n').trim();
+      }
+
+      // Check if block contains an explanation
+      let explanation: string | undefined;
+      const expMatch = block.match(this.EXPLANATION_REGEX);
+      if (expMatch && expMatch.index !== undefined) {
+        explanation = expMatch[1].trim();
+        block = block.slice(0, expMatch.index).trim();
+      }
+
+      // In remaining block, separate question prompt from options
       const optionStartRegex = /(?:^|\n)\s*(?:\([A-Da-d]\)|[A-Da-d][\.\:\)\-])\s+/;
       const optionMatch = block.match(optionStartRegex);
 
       let questionPrompt = block;
       let optionsBlock = '';
-      let explanation: string | undefined;
 
       if (optionMatch && optionMatch.index !== undefined) {
         questionPrompt = block.slice(0, optionMatch.index).trim();
         optionsBlock = block.slice(optionMatch.index).trim();
-
-        // Check if options block contains an explanation at the bottom
-        const expMatch = optionsBlock.match(this.EXPLANATION_REGEX);
-        if (expMatch && expMatch.index !== undefined) {
-          explanation = expMatch[1].trim();
-          optionsBlock = optionsBlock.slice(0, expMatch.index).trim();
-        }
-      }
-
-      // Check if question prompt itself had an explanation (rare)
-      const promptExpMatch = questionPrompt.match(this.EXPLANATION_REGEX);
-      if (promptExpMatch && promptExpMatch.index !== undefined) {
-        explanation = promptExpMatch[1].trim();
-        questionPrompt = questionPrompt.slice(0, promptExpMatch.index).trim();
       }
 
       // Parse options using OptionParser
       const parsedOptions = OptionParser.parse(optionsBlock);
 
+      const finalAnswerLetter = explicitAnswerLetter || parsedOptions.detectedAnswerLetter;
+      const finalMethod: AnswerDetectionMethod = explicitAnswerLetter
+        ? 'explicit_label'
+        : (parsedOptions.detectionMethod || 'manual_required');
+      const finalConfidence = explicitAnswerLetter ? 1.0 : parsedOptions.confidence;
+
       rawQuestions.push({
         questionNumber: current.qNum,
         questionText: questionPrompt.replace(/\s+/g, ' ').trim(),
         options: parsedOptions.options,
-        detectedAnswerLetter: parsedOptions.detectedAnswerLetter,
-        detectionMethod: parsedOptions.detectionMethod,
-        confidence: parsedOptions.confidence,
+        detectedAnswerLetter: finalAnswerLetter,
+        detectionMethod: finalMethod,
+        confidence: finalConfidence,
         explanation
       });
     }
