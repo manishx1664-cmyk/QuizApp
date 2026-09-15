@@ -173,11 +173,9 @@ export class QuizService {
       createdBy: data.createdBy
     });
 
-    const savedQuestions: Question[] = [];
-
-    for (const eq of data.questions) {
-      const q = await QuestionService.createQuestion({
-        quizId: quiz.id,
+    const savedQuestions = await QuestionService.createQuestionsBatch(
+      quiz.id,
+      data.questions.map((eq) => ({
         questionText: eq.questionText,
         imageUrl: eq.imageUrl,
         explanation: eq.explanation,
@@ -191,9 +189,8 @@ export class QuizService {
         requiresReview: eq.requiresReview,
         detectionMethod: eq.detectionMethod,
         confidence: eq.confidence
-      });
-      savedQuestions.push(q);
-    }
+      }))
+    );
 
     return { quiz, questions: savedQuestions };
   }

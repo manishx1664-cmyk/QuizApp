@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Question, Option, QuestionVersion, QuizDifficulty } from '@quizforge/shared';
+import { Question, Option, QuestionVersion, QuizDifficulty, AnswerDetectionMethod } from '@quizforge/shared';
 import { db } from '../../db/client';
 
 export interface QuestionFilter {
@@ -61,19 +61,24 @@ export class QuestionService {
 
     sql += ` ORDER BY q.created_at DESC`;
 
-
     const res = await db.query(sql, params);
-    const questions: Question[] = [];
+    if (res.rows.length === 0) return [];
 
-    for (const row of res.rows) {
-      const optionsRes = await db.query(
-        `SELECT * FROM question_options WHERE question_id = $1 ORDER BY sort_order ASC, option_letter ASC`,
-        [row.id]
-      );
-      questions.push(this.mapQuestionRow(row, optionsRes.rows));
+    const questionIds = res.rows.map((r) => r.id);
+    const optionsRes = await db.query(
+      `SELECT * FROM question_options WHERE question_id = ANY($1::text[]) ORDER BY sort_order ASC, option_letter ASC`,
+      [questionIds]
+    );
+
+    const optionsByQuestionId = new Map<string, any[]>();
+    for (const opt of optionsRes.rows) {
+      if (!optionsByQuestionId.has(opt.question_id)) {
+        optionsByQuestionId.set(opt.question_id, []);
+      }
+      optionsByQuestionId.get(opt.question_id)!.push(opt);
     }
 
-    return questions;
+    return res.rows.map((row) => this.mapQuestionRow(row, optionsByQuestionId.get(row.id) || []));
   }
 
   public static async getQuestionById(id: string): Promise<Question | null> {
@@ -128,18 +133,37 @@ export class QuestionService {
     categoryId?: string;
     options: { letter: string; text: string; isCorrect: boolean }[];
     requiresReview?: boolean;
-    detectionMethod?: string;
+    detectionMethod?: AnswerDetectionMethod;
     confidence?: number;
   }): Promise<Question> {
     const qId = uuidv4();
     const difficulty = data.difficulty || 'medium';
-    const detectionMethod = data.detectionMethod || 'manual_required';
+    const detectionMethod: AnswerDetectionMethod = data.detectionMethod || 'manual_required';
     const confidence = data.confidence !== undefined ? data.confidence : 1.0;
 
-    // Create question
+    let correctOptionId: string | null = null;
+    const optionsList: Option[] = [];
+
+    for (let i = 0; i < data.options.length; i++) {
+      const opt = data.options[i];
+      const optId = uuidv4();
+      if (opt.isCorrect) {
+        correctOptionId = optId;
+      }
+      optionsList.push({
+        id: optId,
+        questionId: qId,
+        optionLetter: opt.letter.toUpperCase(),
+        text: opt.text.trim(),
+        isCorrect: opt.isCorrect,
+        sortOrder: i
+      });
+    }
+
+    // Insert question with correct_option_id directly in 1 query
     await db.query(
-      `INSERT INTO questions (id, quiz_id, question_text, image_url, explanation, difficulty, category_id, detection_method, confidence, requires_review, version)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1)`,
+      `INSERT INTO questions (id, quiz_id, question_text, image_url, explanation, difficulty, category_id, correct_option_id, detection_method, confidence, requires_review, version)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 1)`,
       [
         qId,
         data.quizId || null,
@@ -148,36 +172,114 @@ export class QuestionService {
         data.explanation || null,
         difficulty,
         data.categoryId || null,
+        correctOptionId,
         detectionMethod,
         confidence,
         data.requiresReview || false
       ]
     );
 
-    let correctOptionId: string | null = null;
-
-    // Create options
-    for (let i = 0; i < data.options.length; i++) {
-      const opt = data.options[i];
-      const optId = uuidv4();
-      if (opt.isCorrect) {
-        correctOptionId = optId;
-      }
+    // Insert options
+    for (const opt of optionsList) {
       await db.query(
         `INSERT INTO question_options (id, question_id, option_letter, text, is_correct, sort_order)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [optId, qId, opt.letter.toUpperCase(), opt.text.trim(), opt.isCorrect, i]
+        [opt.id, qId, opt.optionLetter, opt.text, opt.isCorrect, opt.sortOrder]
       );
     }
 
-    if (correctOptionId) {
-      await db.query(`UPDATE questions SET correct_option_id = $1 WHERE id = $2`, [
-        correctOptionId,
-        qId
-      ]);
+    return (await this.getQuestionById(qId))!;
+  }
+
+  public static async createQuestionsBatch(
+    quizId: string,
+    questionsData: Array<{
+      questionText: string;
+      imageUrl?: string;
+      explanation?: string;
+      difficulty?: QuizDifficulty;
+      categoryId?: string;
+      options: { letter: string; text: string; isCorrect: boolean }[];
+      requiresReview?: boolean;
+      detectionMethod?: AnswerDetectionMethod;
+      confidence?: number;
+    }>
+  ): Promise<Question[]> {
+    if (questionsData.length === 0) return [];
+
+    const resultQuestions: Question[] = [];
+
+    for (const data of questionsData) {
+      const qId = uuidv4();
+      const difficulty = data.difficulty || 'medium';
+      const detectionMethod: AnswerDetectionMethod = data.detectionMethod || 'manual_required';
+      const confidence = data.confidence !== undefined ? data.confidence : 1.0;
+
+      let correctOptionId: string | null = null;
+      const optionsList: Option[] = [];
+
+      for (let i = 0; i < data.options.length; i++) {
+        const opt = data.options[i];
+        const optId = uuidv4();
+        if (opt.isCorrect) {
+          correctOptionId = optId;
+        }
+        optionsList.push({
+          id: optId,
+          questionId: qId,
+          optionLetter: opt.letter.toUpperCase(),
+          text: opt.text.trim(),
+          isCorrect: opt.isCorrect,
+          sortOrder: i
+        });
+      }
+
+      await db.query(
+        `INSERT INTO questions (id, quiz_id, question_text, image_url, explanation, difficulty, category_id, correct_option_id, detection_method, confidence, requires_review, version)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 1)`,
+        [
+          qId,
+          quizId,
+          data.questionText.trim(),
+          data.imageUrl || null,
+          data.explanation || null,
+          difficulty,
+          data.categoryId || null,
+          correctOptionId,
+          detectionMethod,
+          confidence,
+          data.requiresReview || false
+        ]
+      );
+
+      for (const opt of optionsList) {
+        await db.query(
+          `INSERT INTO question_options (id, question_id, option_letter, text, is_correct, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [opt.id, qId, opt.optionLetter, opt.text, opt.isCorrect, opt.sortOrder]
+        );
+      }
+
+      resultQuestions.push({
+        id: qId,
+        quizId,
+        questionText: data.questionText.trim(),
+        imageUrl: data.imageUrl,
+        explanation: data.explanation,
+        difficulty,
+        categoryId: data.categoryId,
+        correctOptionId: correctOptionId || undefined,
+        detectionMethod,
+        confidence,
+        requiresReview: data.requiresReview || false,
+        version: 1,
+        options: optionsList,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
     }
 
-    return (await this.getQuestionById(qId))!;
+    return resultQuestions;
   }
 
   public static async updateQuestion(
@@ -219,7 +321,6 @@ export class QuestionService {
     let finalCorrectOptionId = data.correctOptionId || existing.correctOptionId;
 
     if (data.options && data.options.length > 0) {
-      // Remove old options and insert new
       await db.query(`DELETE FROM question_options WHERE question_id = $1`, [id]);
       for (let i = 0; i < data.options.length; i++) {
         const opt = data.options[i];
@@ -234,7 +335,6 @@ export class QuestionService {
         );
       }
     } else if (data.correctOptionId) {
-      // Update is_correct flags in existing options
       await db.query(
         `UPDATE question_options SET is_correct = (id = $1) WHERE question_id = $2`,
         [data.correctOptionId, id]
@@ -317,7 +417,7 @@ export class QuestionService {
       options,
       correctOptionId: row.correct_option_id || correctOption?.id,
       detectedAnswerLetter: row.detected_answer_letter || correctOption?.optionLetter,
-      detectionMethod: row.detection_method,
+      detectionMethod: (row.detection_method || 'manual_required') as AnswerDetectionMethod,
       confidence: Number(row.confidence || 0),
       requiresReview: !!row.requires_review,
       duplicateWarning: !!row.duplicate_warning,
