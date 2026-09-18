@@ -9,11 +9,6 @@ export interface ParsedOptionsResult {
 }
 
 export class OptionParser {
-  // Option start markers:
-  // "A. ", "A) ", "(A) ", "a. ", "a) ", "(a) "
-  private static OPTION_PREFIX_REGEX = /(?:^|\n)\s*(?:\(?([A-Da-d])\)?[\.\:\)\-]?)\s+/;
-  private static INLINE_MULTI_OPTION_REGEX = /(?:^|\s+)(?:\(?([A-Da-d])\)?[\.\:\)\-]\s+)/g;
-
   public static parse(optionsBlockText: string): ParsedOptionsResult {
     const lines = optionsBlockText.split(/\r?\n/);
     const options: ExtractedOption[] = [];
@@ -23,10 +18,11 @@ export class OptionParser {
 
     let currentLetter: string | null = null;
     let currentText = '';
+    let currentHasLeadingMark = false;
 
     const saveCurrentOption = () => {
       if (currentLetter && currentText.trim()) {
-        const detection = MarkedAnswerDetector.inspectOptionText(currentText.trim());
+        const detection = MarkedAnswerDetector.inspectOptionText(currentText.trim(), currentHasLeadingMark);
         options.push({
           letter: currentLetter.toUpperCase(),
           text: detection.cleanText
@@ -41,8 +37,8 @@ export class OptionParser {
     };
 
     // Regex to match start of an option on a line:
-    // Matches: "A. ", "A) ", "(A)", "a.", etc.
-    const lineOptionStartRegex = /^\s*(?:\(([A-Da-d])\)|([A-Da-d])[\.\:\)\-])\s*(.*)$/;
+    // Supports: "A. ", "A) ", "(A)", "3  A. ", "✓ A. ", "* A. ", etc.
+    const lineOptionStartRegex = /^\s*(?:([\u2713\u2714\u221A\u25CF\u25C9\u25CE\*\•\d])\s+)?(?:\(([A-Da-d])\)|\[([A-Da-d])\]|([A-Da-d])[\.\:\)\-])\s*(.*)$/;
 
     for (const rawLine of lines) {
       const line = rawLine.trim();
@@ -53,19 +49,24 @@ export class OptionParser {
         // Save previous option if any
         saveCurrentOption();
 
-        currentLetter = (match[1] || match[2]).toUpperCase();
-        currentText = match[3] || '';
+        const leadingGlyph = match[1];
+        // If leading glyph was a checkmark or symbol or '3', note that it has a leading mark
+        currentHasLeadingMark = !!(leadingGlyph && (['3', '*', '✓', '✔', '√', '•', '●'].includes(leadingGlyph) || /[\u2713\u2714\u221A\u25CF\u25C9\u25CE\*\•]/.test(leadingGlyph)));
+        currentLetter = (match[2] || match[3] || match[4]).toUpperCase();
+        currentText = match[5] || '';
 
-        // Check if there's a second option on the SAME line (e.g. "A. Cat   B. Dog")
-        const subsequentOptionRegex = /\s+(?:\(([B-Db-d])\)|([B-Db-d])[\.\:\)\-])\s+(.*)$/;
+        // Check if there's a second option on the SAME line (e.g. "A. Cat   B. Dog" or "A. Cat  3  B. Dog")
+        const subsequentOptionRegex = /\s+(?:([\u2713\u2714\u221A\u25CF\u25C9\u25CE\*\•\d])\s+)?(?:\(([B-Db-d])\)|\[([B-Db-d])\]|([B-Db-d])[\.\:\)\-])\s+(.*)$/;
         const subMatch = currentText.match(subsequentOptionRegex);
         if (subMatch && subMatch.index !== undefined) {
           const firstOptionText = currentText.slice(0, subMatch.index).trim();
           currentText = firstOptionText;
           saveCurrentOption();
 
-          currentLetter = (subMatch[1] || subMatch[2]).toUpperCase();
-          currentText = subMatch[3] || '';
+          const subLeadingGlyph = subMatch[1];
+          currentHasLeadingMark = !!(subLeadingGlyph && (['3', '*', '✓', '✔', '√', '•', '●'].includes(subLeadingGlyph) || /[\u2713\u2714\u221A\u25CF\u25C9\u25CE\*\•]/.test(subLeadingGlyph)));
+          currentLetter = (subMatch[2] || subMatch[3] || subMatch[4]).toUpperCase();
+          currentText = subMatch[5] || '';
         }
       } else if (currentLetter) {
         // Continuation of current option text

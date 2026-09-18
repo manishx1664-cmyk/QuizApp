@@ -13,7 +13,7 @@ export interface RawParsedQuestion {
 
 export class QuestionParser {
   private static QUESTION_START_REGEX = /(?:^|\n)\s*(?:(?:Question|Q)\s*)?(\d+)[\.\:\)\-]\s+/i;
-  private static EXPLANATION_REGEX = /(?:Explanation|Exp|Reason|Rationale|Note)\s*[\:\-]\s*(.+)$/is;
+  private static EXPLANATION_REGEX = /(?:Solution|Sol|Explanation|Exp|Reason|Rationale|Note)\s*[\:\-]\s*(.+)$/is;
   private static ANSWER_LINE_REGEX = /(?:^|\n)\s*(?:Correct\s*(?:Option|Answer)?|Ans(?:wer)?|Right\s*Answer|Key)\s*[\:\-\.]\s*\(?([A-Da-d])\)?(?:\s|$)/i;
 
   public static parseQuestions(contentWithoutAnswerKey: string): RawParsedQuestion[] {
@@ -48,11 +48,10 @@ export class QuestionParser {
       const answerMatch = block.match(this.ANSWER_LINE_REGEX);
       if (answerMatch && answerMatch[1]) {
         explicitAnswerLetter = answerMatch[1].toUpperCase();
-        // Remove answer line from the block to prevent option corruption
         block = block.replace(this.ANSWER_LINE_REGEX, '\n').trim();
       }
 
-      // Check if block contains an explanation
+      // Check if block contains an explanation / solution
       let explanation: string | undefined;
       const expMatch = block.match(this.EXPLANATION_REGEX);
       if (expMatch && expMatch.index !== undefined) {
@@ -61,7 +60,8 @@ export class QuestionParser {
       }
 
       // In remaining block, separate question prompt from options
-      const optionStartRegex = /(?:^|\n)\s*(?:\([A-Da-d]\)|[A-Da-d][\.\:\)\-])\s+/;
+      // Matches: "A. ", "A) ", "(A)", "3  A. ", "✓ A. ", "* A. "
+      const optionStartRegex = /(?:^|\n)\s*(?:[\u2713\u2714\u221A\u25CF\u25C9\u25CE\*\•\d]\s+)?(?:\([A-Da-d]\)|\[[A-Da-d]\]|[A-Da-d][\.\:\)\-])\s+/;
       const optionMatch = block.match(optionStartRegex);
 
       let questionPrompt = block;
