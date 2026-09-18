@@ -463,6 +463,126 @@ export class AttemptService {
     }));
   }
 
+  public static async getAdminAttempts(filter: {
+    adminId?: string;
+    quizId?: string;
+    search?: string;
+    status?: string;
+    isPassed?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ attempts: Attempt[]; total: number }> {
+    let whereClause = 'WHERE 1=1';
+    const params: any[] = [];
+    let pIndex = 1;
+
+    if (filter.adminId) {
+      whereClause += ` AND (q.created_by = $${pIndex} OR q.created_by IS NULL)`;
+      params.push(filter.adminId);
+      pIndex++;
+    }
+
+    if (filter.quizId) {
+      whereClause += ` AND a.quiz_id = $${pIndex}`;
+      params.push(filter.quizId);
+      pIndex++;
+    }
+
+    if (filter.status) {
+      whereClause += ` AND a.status = $${pIndex}`;
+      params.push(filter.status);
+      pIndex++;
+    }
+
+    if (filter.isPassed !== undefined) {
+      whereClause += ` AND a.is_passed = $${pIndex}`;
+      params.push(filter.isPassed);
+      pIndex++;
+    }
+
+    if (filter.search) {
+      whereClause += ` AND (COALESCE(a.learner_name, u.name, '') ILIKE $${pIndex} OR q.title ILIKE $${pIndex} OR COALESCE(u.email, '') ILIKE $${pIndex})`;
+      params.push(`%${filter.search}%`);
+      pIndex++;
+    }
+
+    const countSql = `
+      SELECT COUNT(*) as total
+      FROM attempts a
+      LEFT JOIN users u ON u.id = a.user_id
+      LEFT JOIN quizzes q ON q.id = a.quiz_id
+      ${whereClause}
+    `;
+
+    const countRes = await db.query(countSql, params);
+    const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+    const limit = filter.limit || 50;
+    const offset = filter.offset || 0;
+
+    const selectSql = `
+      SELECT a.*, u.name as user_name, u.email as user_email, q.title as quiz_title
+      FROM attempts a
+      LEFT JOIN users u ON u.id = a.user_id
+      LEFT JOIN quizzes q ON q.id = a.quiz_id
+      ${whereClause}
+      ORDER BY COALESCE(a.submitted_at, a.started_at) DESC
+      LIMIT $${pIndex} OFFSET $${pIndex + 1}
+    `;
+
+    const queryParams = [...params, limit, offset];
+    const res = await db.query(selectSql, queryParams);
+
+    const attempts: Attempt[] = res.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      userName: row.user_name,
+      userEmail: row.user_email,
+      learnerName: row.learner_name || row.user_name || 'Learner',
+      quizId: row.quiz_id,
+      quizTitle: row.quiz_title,
+      startedAt: row.started_at,
+      submittedAt: row.submitted_at,
+      timeTakenSeconds: Number(row.time_taken_seconds || 0),
+      score: Number(row.score || 0),
+      maxScore: Number(row.max_score || 0),
+      percentage: Number(row.percentage || 0),
+      isPassed: !!row.is_passed,
+      status: row.status
+    }));
+
+    return { attempts, total };
+  }
+
+  public static async exportAdminAttemptsCsv(adminId?: string, quizId?: string): Promise<{ filename: string; content: string; mimeType: string }> {
+    const { attempts } = await this.getAdminAttempts({ adminId, quizId, limit: 10000 });
+    
+    let csv = 'Attempt ID,Learner Name,Email,Quiz Title,Score,Max Score,Percentage,Status,Passed,Time Taken (Seconds),Submitted At\n';
+    
+    for (const a of attempts) {
+      const row = [
+        `"${a.id}"`,
+        `"${(a.learnerName || '').replace(/"/g, '""')}"`,
+        `"${(a.userEmail || '').replace(/"/g, '""')}"`,
+        `"${(a.quizTitle || '').replace(/"/g, '""')}"`,
+        a.score,
+        a.maxScore,
+        `${a.percentage}%`,
+        `"${a.status}"`,
+        a.isPassed ? 'Yes' : 'No',
+        a.timeTakenSeconds,
+        `"${a.submittedAt || a.startedAt || ''}"`
+      ];
+      csv += row.join(',') + '\n';
+    }
+
+    return {
+      filename: `learner_performance_${Date.now()}.csv`,
+      content: csv,
+      mimeType: 'text/csv'
+    };
+  }
+
   private static shuffleArray<T>(array: T[]): T[] {
     const arr = [...array];
     for (let i = arr.length - 1; i > 0; i--) {

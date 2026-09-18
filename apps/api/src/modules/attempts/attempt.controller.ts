@@ -85,6 +85,42 @@ attemptRouter.post('/:id/submit', optionalAuthenticateToken, async (req: Request
   }
 });
 
+// GET /api/attempts/admin/all (Admin only - Complete Learner Performance)
+attemptRouter.get('/admin/all', authenticateToken, requireRole('admin'), async (req: Request, res: Response) => {
+  try {
+    const { quizId, search, status, isPassed, limit, offset } = req.query;
+    const filterAdminId = req.user?.id;
+
+    const data = await AttemptService.getAdminAttempts({
+      adminId: filterAdminId,
+      quizId: quizId as string,
+      search: search as string,
+      status: status as string,
+      isPassed: isPassed !== undefined ? isPassed === 'true' : undefined,
+      limit: limit ? parseInt(limit as string, 10) : 50,
+      offset: offset ? parseInt(offset as string, 10) : 0
+    });
+
+    return res.json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/attempts/admin/export (Admin only - Export gradebook CSV)
+attemptRouter.get('/admin/export', authenticateToken, requireRole('admin'), async (req: Request, res: Response) => {
+  try {
+    const { quizId } = req.query;
+    const exported = await AttemptService.exportAdminAttemptsCsv(req.user?.id, quizId as string);
+
+    res.setHeader('Content-Type', exported.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${exported.filename}"`);
+    return res.send(exported.content);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/attempts/my-attempts
 attemptRouter.get('/my-attempts', authenticateToken, async (req: Request, res: Response) => {
   try {

@@ -263,6 +263,20 @@ export const api = {
   getMyAttempts: () =>
     request<{ attempts: Attempt[] }>('/attempts/my-attempts'),
 
+  getAdminAttempts: (params: { quizId?: string; search?: string; status?: string; isPassed?: boolean; limit?: number; offset?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (params.quizId) query.append('quizId', params.quizId);
+    if (params.search) query.append('search', params.search);
+    if (params.status) query.append('status', params.status);
+    if (params.isPassed !== undefined) query.append('isPassed', String(params.isPassed));
+    if (params.limit) query.append('limit', String(params.limit));
+    if (params.offset) query.append('offset', String(params.offset));
+    return request<{ attempts: Attempt[]; total: number }>(`/attempts/admin/all?${query.toString()}`);
+  },
+
+  exportAdminAttemptsUrl: (quizId?: string) =>
+    `/api/attempts/admin/export${quizId ? `?quizId=${quizId}` : ''}`,
+
   // Analytics & Audit
   getAnalyticsSummary: () => request<AnalyticsSummary>('/analytics'),
   getAuditLogs: (limit = 100) => request<{ logs: AuditLog[] }>(`/audit-logs?limit=${limit}`)
