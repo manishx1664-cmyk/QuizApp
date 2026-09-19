@@ -14,12 +14,15 @@ export interface RawParsedQuestion {
 export class QuestionParser {
   private static QUESTION_START_REGEX = /(?:^|\n)\s*(?:(?:Question|Q)\s*)?(\d+)[\.\:\)\-]\s+/i;
   private static EXPLANATION_REGEX = /(?:Solution|Sol|Explanation|Exp|Reason|Rationale|Note)\s*[\:\-]\s*(.+)$/is;
-  private static ANSWER_LINE_REGEX = /(?:^|\n)\s*(?:Correct\s*(?:Option|Answer)?|Ans(?:wer)?|Right\s*Answer|Key)\s*[\:\-\.]\s*\(?([A-Da-d])\)?(?:\s|$)/i;
+  private static ANSWER_LINE_REGEX = /(?:^|\n)\s*(?:(?:Correct\s*(?:Option|Answer)?|Ans(?:wer)?|Right\s*(?:Option|Answer)?|Key)\s*(?:is|[\:\-\.\=])\s*(?:Option\s*)?\(?([A-Da-d1-4])\)?|Option\s*\(?([A-Da-d1-4])\)?\s*(?:is|was)\s*(?:the\s*)?correct)/i;
 
   public static parseQuestions(contentWithoutAnswerKey: string): RawParsedQuestion[] {
     const rawQuestions: RawParsedQuestion[] = [];
     const text = contentWithoutAnswerKey.trim();
     if (!text) return [];
+
+    // Digit to letter map (1->A, 2->B, 3->C, 4->D)
+    const digitToLetter: Record<string, string> = { '1': 'A', '2': 'B', '3': 'C', '4': 'D' };
 
     // Find all question header matches and their indices
     const regex = /(?:^|\n)\s*(?:(?:Question|Q)\s*)?(\d+)[\.\:\)\-]\s+/gi;
@@ -43,12 +46,15 @@ export class QuestionParser {
       const nextIndex = i + 1 < matches.length ? matches[i + 1].startIndex : text.length;
       let block = text.slice(current.headerEndIndex, nextIndex).trim();
 
-      // Check if block contains an explicit answer line: "Answer: B" or "Ans: C"
+      // Check if block contains an explicit answer line: "Answer: B" or "Ans: Option (C)"
       let explicitAnswerLetter: string | undefined;
       const answerMatch = block.match(this.ANSWER_LINE_REGEX);
-      if (answerMatch && answerMatch[1]) {
-        explicitAnswerLetter = answerMatch[1].toUpperCase();
-        block = block.replace(this.ANSWER_LINE_REGEX, '\n').trim();
+      if (answerMatch) {
+        const rawAns = answerMatch[1] || answerMatch[2];
+        if (rawAns) {
+          explicitAnswerLetter = digitToLetter[rawAns] || rawAns.toUpperCase();
+          block = block.replace(this.ANSWER_LINE_REGEX, '\n').trim();
+        }
       }
 
       // Check if block contains an explanation / solution

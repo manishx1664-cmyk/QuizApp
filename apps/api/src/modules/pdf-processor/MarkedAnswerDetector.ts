@@ -8,11 +8,11 @@ export interface MarkedAnswerDetectionResult {
 }
 
 export class MarkedAnswerDetector {
-  // 1. Bracketed tags: (Correct), [Correct], (Correct Answer), [Correct Answer], (Ans), [Ans], {Correct}
-  private static BRACKETED_LABEL_REGEX = /\(?\[\s*(?:Correct(?:\s*Answer)?|Right\s*Answer|Ans(?:wer)?)\s*\]\)?|\(\s*(?:Correct(?:\s*Answer)?|Right\s*Answer|Ans(?:wer)?)\s*\)/i;
+  // 1. Bracketed tags: (Correct), [Correct], (Correct Answer), [Correct Answer], (Ans), [Ans], [True], (Right), [x], [✓]
+  private static BRACKETED_LABEL_REGEX = /\(?\[\s*(?:Correct(?:\s*Answer)?|Right(?:\s*Answer)?|Ans(?:wer)?|True|[xX✓✔])\s*\]\)?|\(\s*(?:Correct(?:\s*Answer)?|Right(?:\s*Answer)?|Ans(?:wer)?|True|[xX✓✔])\s*\)/i;
 
-  // 2. Trailing labels: '3 Correct Answer', '✓ Correct Answer', 'Correct Answer', 'Right Answer', '- Correct'
-  private static TRAILING_LABEL_REGEX = /(?:\s*(?:[\u2713\u2714\u221A\*\d]|\(?[✓✔xX]\)?|\[[✓✔xX]\])?\s*(?:Correct\s*Answer|Right\s*Answer|Correct\s*Option)\s*$)|(?:\s*[\-\–\:]\s*Correct\s*$)/i;
+  // 2. Trailing labels: '3 Correct Answer', '✓ Correct Answer', 'Correct Answer', 'Right Answer', '- Correct', '- True'
+  private static TRAILING_LABEL_REGEX = /(?:\s*(?:[\u2713\u2714\u221A\*\d]|\(?[✓✔xX]\)?|\[[✓✔xX]\])?\s*(?:Correct\s*Answer|Right\s*Answer|Correct\s*Option|Correct|Right|True)\s*$)|(?:\s*[\-\–\:]\s*(?:Correct|Right|True)\s*$)/i;
 
   // 3. Checkmarks / asterisk markings
   private static CHECKMARK_END_REGEX = /\s*(?:[\u2713\u2714\u221A]|\*|\[[xX✓✔]\]|\([xX✓✔]\))\s*$/;

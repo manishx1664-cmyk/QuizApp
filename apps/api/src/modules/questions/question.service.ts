@@ -208,6 +208,13 @@ export class QuestionService {
     if (questionsData.length === 0) return [];
 
     const resultQuestions: Question[] = [];
+    const qValueClauses: string[] = [];
+    const qParams: any[] = [];
+    let pIdx = 1;
+
+    const optValueClauses: string[] = [];
+    const optParams: any[] = [];
+    let optPIdx = 1;
 
     for (const data of questionsData) {
       const qId = uuidv4();
@@ -232,33 +239,27 @@ export class QuestionService {
           isCorrect: opt.isCorrect,
           sortOrder: i
         });
+
+        optValueClauses.push(`($${optPIdx}, $${optPIdx + 1}, $${optPIdx + 2}, $${optPIdx + 3}, $${optPIdx + 4}, $${optPIdx + 5})`);
+        optParams.push(optId, qId, opt.letter.toUpperCase(), opt.text.trim(), opt.isCorrect, i);
+        optPIdx += 6;
       }
 
-      await db.query(
-        `INSERT INTO questions (id, quiz_id, question_text, image_url, explanation, difficulty, category_id, correct_option_id, detection_method, confidence, requires_review, version)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 1)`,
-        [
-          qId,
-          quizId,
-          data.questionText.trim(),
-          data.imageUrl || null,
-          data.explanation || null,
-          difficulty,
-          data.categoryId || null,
-          correctOptionId,
-          detectionMethod,
-          confidence,
-          data.requiresReview || false
-        ]
+      qValueClauses.push(`($${pIdx}, $${pIdx + 1}, $${pIdx + 2}, $${pIdx + 3}, $${pIdx + 4}, $${pIdx + 5}, $${pIdx + 6}, $${pIdx + 7}, $${pIdx + 8}, $${pIdx + 9}, $${pIdx + 10}, 1)`);
+      qParams.push(
+        qId,
+        quizId,
+        data.questionText.trim(),
+        data.imageUrl || null,
+        data.explanation || null,
+        difficulty,
+        data.categoryId || null,
+        correctOptionId,
+        detectionMethod,
+        confidence,
+        data.requiresReview || false
       );
-
-      for (const opt of optionsList) {
-        await db.query(
-          `INSERT INTO question_options (id, question_id, option_letter, text, is_correct, sort_order)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [opt.id, qId, opt.optionLetter, opt.text, opt.isCorrect, opt.sortOrder]
-        );
-      }
+      pIdx += 11;
 
       resultQuestions.push({
         id: qId,
@@ -277,6 +278,23 @@ export class QuestionService {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       });
+    }
+
+    // Execute batch insert in 2 single queries
+    if (qValueClauses.length > 0) {
+      await db.query(
+        `INSERT INTO questions (id, quiz_id, question_text, image_url, explanation, difficulty, category_id, correct_option_id, detection_method, confidence, requires_review, version)
+         VALUES ${qValueClauses.join(', ')}`,
+        qParams
+      );
+    }
+
+    if (optValueClauses.length > 0) {
+      await db.query(
+        `INSERT INTO question_options (id, question_id, option_letter, text, is_correct, sort_order)
+         VALUES ${optValueClauses.join(', ')}`,
+        optParams
+      );
     }
 
     return resultQuestions;

@@ -28,8 +28,24 @@ class DatabaseManager implements DbClient {
       console.log('Connecting to external PostgreSQL database...');
       this.pgPool = new Pool({
         connectionString: config.databaseUrl,
-        ssl: config.databaseUrl.includes('localhost') ? false : { rejectUnauthorized: false }
+        ssl: config.databaseUrl.includes('localhost') ? false : { rejectUnauthorized: false },
+        max: 10,
+        connectionTimeoutMillis: 10000,
+        idleTimeoutMillis: 30000
       });
+
+      // Quick check if schema already initialized in remote database
+      try {
+        const checkRes = await this.pgPool.query(
+          "SELECT 1 FROM information_schema.tables WHERE table_name = 'quizzes'"
+        );
+        if (checkRes.rowCount && checkRes.rowCount > 0) {
+          this.initialized = true;
+          return;
+        }
+      } catch (checkErr) {
+        // Table check failed, proceed to initialize schema below
+      }
     } else if (process.env.NODE_ENV === 'test') {
       console.log('Initializing isolated in-memory PostgreSQL (PGlite)...');
       this.pgliteInstance = new PGlite();

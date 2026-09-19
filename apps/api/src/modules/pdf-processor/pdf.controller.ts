@@ -58,10 +58,14 @@ pdfRouter.post(
       console.log(` Receiving PDF upload: ${req.file.originalname} (${req.file.size} bytes)`);
       const job = await PDFProcessor.createJob(req.file.originalname, req.file.size);
 
-      // Trigger asynchronous PDF processing in background
-      PDFProcessor.processPdf(job.id, req.file.path).catch((err) => {
-        console.error('Asynchronous PDF processing error:', err);
-      });
+      // Process PDF synchronously to support serverless / Netlify lambda environments reliably
+      try {
+        await PDFProcessor.processPdf(job.id, req.file.path);
+      } catch (procErr) {
+        console.error('PDF processing error during upload:', procErr);
+      }
+
+      const completedJob = await PDFProcessor.getJob(job.id);
 
       await AuditService.logAction(
         req.user?.id,
@@ -73,9 +77,9 @@ pdfRouter.post(
         { filename: req.file.originalname, filesize: req.file.size }
       );
 
-      return res.status(202).json({
-        message: 'PDF upload successful. Processing started.',
-        job
+      return res.status(200).json({
+        message: 'PDF upload successful. Processing completed.',
+        job: completedJob || job
       });
     } catch (err: any) {
       console.error('Error handling PDF upload:', err);

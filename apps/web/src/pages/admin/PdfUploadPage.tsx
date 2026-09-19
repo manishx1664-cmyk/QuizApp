@@ -73,7 +73,13 @@ export const PdfUploadPage: React.FC = () => {
       const uploadRes = await api.uploadPdf(target);
       setCurrentJob(uploadRes.job);
 
-      // Poll job status until completed
+      if (uploadRes.job.status === 'completed' || uploadRes.job.status === 'requires_review') {
+        setIsProcessing(false);
+        navigate(`/admin/review/${uploadRes.job.id}`);
+        return;
+      }
+
+      // Poll job status until completed (fallback if asynchronous)
       const pollInterval = setInterval(async () => {
         try {
           const res = await api.getPdfJob(uploadRes.job.id);
