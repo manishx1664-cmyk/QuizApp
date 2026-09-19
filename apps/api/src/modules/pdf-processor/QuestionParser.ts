@@ -14,7 +14,7 @@ export interface RawParsedQuestion {
 export class QuestionParser {
   private static QUESTION_START_REGEX = /(?:^|\n)\s*(?:(?:Question|Q)\s*)?(\d+)[\.\:\)\-]\s+/i;
   private static EXPLANATION_REGEX = /(?:Solution|Sol|Explanation|Exp|Reason|Rationale|Note)\s*[\:\-]\s*(.+)$/is;
-  private static ANSWER_LINE_REGEX = /(?:^|\n)\s*(?:(?:Correct\s*(?:Option|Answer)?|Ans(?:wer)?|Right\s*(?:Option|Answer)?|Key)\s*(?:is|[\:\-\.\=])\s*(?:Option\s*)?\(?([A-Da-d1-4])\)?|Option\s*\(?([A-Da-d1-4])\)?\s*(?:is|was)\s*(?:the\s*)?correct)/i;
+  private static ANSWER_LINE_REGEX = /(?:^|\n)\s*(?:(?:Correct\s*(?:Option|Answer)?|Ans(?:wer)?|Right\s*(?:Option|Answer)?|Key|Sol(?:ution)?)\s*(?:is|was|[\:\-\.\=])\s*(?:Option\s*)?\(?([A-Da-d1-4])\)?|Option\s*\(?([A-Da-d1-4])\)?\s*(?:is|was)\s*(?:the\s*)?correct)/i;
 
   public static parseQuestions(contentWithoutAnswerKey: string): RawParsedQuestion[] {
     const rawQuestions: RawParsedQuestion[] = [];
