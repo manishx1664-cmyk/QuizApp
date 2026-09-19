@@ -7,7 +7,26 @@ export interface ExtractedTextResult {
 
 export class TextExtractor {
   public static async extract(buffer: Buffer): Promise<ExtractedTextResult> {
-    // 1. Try modern Mozilla PDF.js extractor first (100% compliant with all streams)
+    // 1. Try robust pdf-parse first (fastest, preserves stream layout & font glyphs accurately)
+    try {
+      const pdfParse = require('pdf-parse');
+      const data = await pdfParse(buffer);
+      const text = data.text ? data.text.trim() : '';
+      const pageCount = data.numpages || 1;
+
+      if (text.length > 50) {
+        return {
+          text,
+          pageCount,
+          info: data.info,
+          requiresOcr: false
+        };
+      }
+    } catch (parseErr: any) {
+      console.warn('pdf-parse primary extraction encountered issue, trying fallback:', parseErr.message);
+    }
+
+    // 2. Fallback to Mozilla PDF.js extractor
     try {
       const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
       const uint8Array = new Uint8Array(buffer);
@@ -51,29 +70,13 @@ export class TextExtractor {
         };
       }
     } catch (pdfjsErr: any) {
-      console.warn('PDF.js text extraction encountered issue, attempting fallback:', pdfjsErr.message);
+      console.warn('PDF.js text extraction encountered issue:', pdfjsErr.message);
     }
 
-    // 2. Fallback to pdf-parse if needed
-    try {
-      const pdfParse = require('pdf-parse');
-      const data = await pdfParse(buffer);
-      const text = data.text ? data.text.trim() : '';
-      const pageCount = data.numpages || 1;
-
-      return {
-        text,
-        pageCount,
-        info: data.info,
-        requiresOcr: text.length === 0
-      };
-    } catch (error: any) {
-      console.warn('Direct PDF text extraction failed:', error.message);
-      return {
-        text: '',
-        pageCount: 1,
-        requiresOcr: true
-      };
-    }
+    return {
+      text: '',
+      pageCount: 1,
+      requiresOcr: true
+    };
   }
 }
