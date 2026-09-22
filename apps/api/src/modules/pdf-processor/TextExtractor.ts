@@ -6,8 +6,36 @@ export interface ExtractedTextResult {
 }
 
 export class TextExtractor {
+  public static isGreenColor(val: any): boolean {
+    if (!val) return false;
+    if (typeof val === 'string') {
+      let hex = val.replace('#', '').trim();
+      if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+      if (hex.length === 6) {
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        // Light pastel green (#dcfce7), dark green (#166534), emerald (#22c55e), lime, etc.
+        return g > 40 && g > r * 1.05 && g > b * 1.05;
+      }
+      const match = val.match(/rgb[a]?\((\d+),\s*(\d+),\s*(\d+)/i);
+      if (match) {
+        const r = parseInt(match[1], 10);
+        const g = parseInt(match[2], 10);
+        const b = parseInt(match[3], 10);
+        return g > 40 && g > r * 1.05 && g > b * 1.05;
+      }
+    } else if (Array.isArray(val) && val.length >= 3) {
+      const r = val[0] > 1 ? val[0] : val[0] * 255;
+      const g = val[1] > 1 ? val[1] : val[1] * 255;
+      const b = val[2] > 1 ? val[2] : val[2] * 255;
+      return g > 40 && g > r * 1.05 && g > b * 1.05;
+    }
+    return false;
+  }
+
   public static async extract(buffer: Buffer): Promise<ExtractedTextResult> {
-    // 1. Try PDF.js visual highlight & layout extractor first (detects green highlight boxes)
+    // 1. Try PDF.js visual highlight & operator text stream extractor first
     try {
       const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
       const uint8Array = new Uint8Array(buffer);
@@ -19,129 +47,89 @@ export class TextExtractor {
 
       const pdfDocument = await loadingTask.promise;
       const numPages = pdfDocument.numPages;
-      let fullText = '';
-      let hasVisualHighlights = false;
+      let fullDocText = '';
 
       for (let pageNum = 1; pageNum <= numPages; pageNum++) {
         const page = await pdfDocument.getPage(pageNum);
         const opList = await page.getOperatorList();
-        const textContent = await page.getTextContent();
 
-        // Detect green background rectangles from operator list
-        const greenBoxes: { minX: number; minY: number; maxX: number; maxY: number }[] = [];
-        let currentFillRGB: [number, number, number] = [0, 0, 0];
-        let currentStrokeRGB: [number, number, number] = [0, 0, 0];
+        let currentFill: any = null;
+        let pageLines: string[] = [];
+        let currentLine = '';
+        let currentLineIsGreen = false;
 
-        const isGreenColor = (r: number, g: number, b: number) => {
-          const rn = r > 1 ? r / 255 : r;
-          const gn = g > 1 ? g / 255 : g;
-          const bn = b > 1 ? b / 255 : b;
-          // Green dominant color (light green pastel #dcfce7, lime, dark green, emerald, etc.)
-          return gn > 0.3 && (gn > rn * 1.04 && gn > bn * 1.03);
-        };
-
-        const cmykToRgb = (c: number, m: number, y: number, k: number): [number, number, number] => {
-          const r = 255 * (1 - c) * (1 - k);
-          const g = 255 * (1 - m) * (1 - k);
-          const b = 255 * (1 - y) * (1 - k);
-          return [r, g, b];
+        const flushLine = () => {
+          if (currentLine.trim().length > 0) {
+            let line = currentLine.trim();
+            if (currentLineIsGreen && !line.includes('(Correct Answer)')) {
+              line += ' (Correct Answer)';
+            }
+            pageLines.push(line);
+          }
+          currentLine = '';
+          currentLineIsGreen = false;
         };
 
         for (let i = 0; i < opList.fnArray.length; i++) {
           const fn = opList.fnArray[i];
           const args = opList.argsArray[i];
 
-          if (fn === pdfjs.OPS.setFillRGBColor && args && args.length >= 3) {
-            currentFillRGB = [args[0], args[1], args[2]];
-          } else if (fn === pdfjs.OPS.setStrokeRGBColor && args && args.length >= 3) {
-            currentStrokeRGB = [args[0], args[1], args[2]];
+          if (fn === pdfjs.OPS.setFillRGBColor && args) {
+            currentFill = args[0];
           } else if (fn === pdfjs.OPS.setFillCMYKColor && args && args.length >= 4) {
-            currentFillRGB = cmykToRgb(args[0], args[1], args[2], args[3]);
-          } else if (fn === pdfjs.OPS.setStrokeCMYKColor && args && args.length >= 4) {
-            currentStrokeRGB = cmykToRgb(args[0], args[1], args[2], args[3]);
-          } else if (
-            (fn === pdfjs.OPS.constructPath || fn === pdfjs.OPS.fill || fn === pdfjs.OPS.fillStroke || fn === pdfjs.OPS.rectangle) &&
-            (isGreenColor(currentFillRGB[0], currentFillRGB[1], currentFillRGB[2]) || isGreenColor(currentStrokeRGB[0], currentStrokeRGB[1], currentStrokeRGB[2]))
-          ) {
-            if (fn === pdfjs.OPS.constructPath && args) {
-              const minX = args[2];
-              const minY = args[3];
-              const maxX = args[4];
-              const maxY = args[5];
-              if (typeof minX === 'number' && typeof minY === 'number' && typeof maxX === 'number' && typeof maxY === 'number') {
-                greenBoxes.push({ minX, minY, maxX, maxY });
+            const c = args[0], m = args[1], y = args[2], k = args[3];
+            const r = 255 * (1 - c) * (1 - k);
+            const g = 255 * (1 - m) * (1 - k);
+            const b = 255 * (1 - y) * (1 - k);
+            currentFill = [r, g, b];
+          } else if (fn === pdfjs.OPS.showText && args && args[0]) {
+            let str = '';
+            for (const g of args[0]) {
+              if (g && g.unicode) str += g.unicode;
+              else if (typeof g === 'string') str += g;
+            }
+
+            if (str.trim().length > 0) {
+              const isChunkGreen = this.isGreenColor(currentFill);
+              const trimmed = str.trim();
+
+              // Check if this chunk starts a new question or option
+              const isNewQuestionOrOption = /^(?:Q\d+[\.:\)]|[A-D]\.|\([A-D]\)|\([0-9]+\)|Question\s+\d+)/i.test(trimmed);
+
+              if (isNewQuestionOrOption && currentLine.trim().length > 0) {
+                flushLine();
               }
-            } else if (fn === pdfjs.OPS.rectangle && args && args.length >= 4) {
-              const [x, y, w, h] = args;
-              greenBoxes.push({
-                minX: Math.min(x, x + w),
-                minY: Math.min(y, y + h),
-                maxX: Math.max(x, x + w),
-                maxY: Math.max(y, y + h)
-              });
+
+              if (isChunkGreen) {
+                currentLineIsGreen = true;
+              }
+
+              if (
+                currentLine.length > 0 &&
+                !currentLine.endsWith(' ') &&
+                !str.startsWith(' ') &&
+                !str.startsWith('>') &&
+                !currentLine.endsWith('<')
+              ) {
+                currentLine += ' ';
+              }
+              currentLine += str;
             }
           }
         }
+        flushLine();
 
-        // Sort text items by top-to-bottom (Y descending) and left-to-right (X ascending) reading order
-        const pageItems = (textContent.items as any[]).slice().sort((a, b) => {
-          const yA = a.transform ? a.transform[5] : 0;
-          const yB = b.transform ? b.transform[5] : 0;
-          if (Math.abs(yA - yB) > 4) {
-            return yB - yA;
-          }
-          const xA = a.transform ? a.transform[4] : 0;
-          const xB = b.transform ? b.transform[4] : 0;
-          return xA - xB;
-        });
-
-        let lastY: number | null = null;
-        let pageText = '';
-        let currentLineIsHighlighted = false;
-
-        for (const item of pageItems) {
-          const itemX = item.transform ? item.transform[4] : 0;
-          const itemY = item.transform ? item.transform[5] : 0;
-          const itemW = item.width || 0;
-          const itemH = item.height || 10;
-
-          const isItemInGreenBox = greenBoxes.some((box) => {
-            return (
-              itemX + itemW >= box.minX - 10 &&
-              itemX <= box.maxX + 10 &&
-              itemY >= box.minY - 10 &&
-              itemY <= box.maxY + 10
-            );
-          });
-
-          if (lastY !== null && Math.abs(itemY - lastY) > 5) {
-            if (currentLineIsHighlighted) {
-              pageText += ' (Correct Answer)';
-              hasVisualHighlights = true;
-            }
-            pageText += '\n';
-            currentLineIsHighlighted = false;
-          } else if (pageText.length > 0 && !pageText.endsWith(' ') && !pageText.endsWith('\n')) {
-            pageText += ' ';
-          }
-
-          if (isItemInGreenBox) {
-            currentLineIsHighlighted = true;
-          }
-
-          pageText += item.str;
-          lastY = itemY;
+        if (pageLines.length > 0) {
+          fullDocText += pageLines.join('\n') + '\n\n';
+        } else {
+          // Fallback to textContent if operator showText had no glyphs
+          const textContent = await page.getTextContent();
+          const items = (textContent.items as any[]).map(item => item.str).join(' ');
+          fullDocText += items + '\n\n';
         }
-
-        if (currentLineIsHighlighted) {
-          pageText += ' (Correct Answer)';
-          hasVisualHighlights = true;
-        }
-
-        fullText += pageText + '\n\n';
       }
 
-      const text = fullText.trim();
+      const text = fullDocText.trim();
       if (text.length > 50) {
         return {
           text,
@@ -179,3 +167,4 @@ export class TextExtractor {
     };
   }
 }
+
