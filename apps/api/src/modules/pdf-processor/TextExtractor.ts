@@ -34,10 +34,26 @@ export class TextExtractor {
     return false;
   }
 
+  private static async getPdfjsLib(): Promise<any> {
+    try {
+      return await import('pdfjs-dist/legacy/build/pdf.mjs');
+    } catch {}
+    try {
+      return require('pdfjs-dist/legacy/build/pdf.mjs');
+    } catch {}
+    try {
+      return await import('pdfjs-dist');
+    } catch {}
+    try {
+      return require('pdfjs-dist');
+    } catch {}
+    throw new Error('pdfjs-dist library not found');
+  }
+
   public static async extract(buffer: Buffer): Promise<ExtractedTextResult> {
     // 1. Try PDF.js visual highlight & operator text stream extractor first
     try {
-      const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+      const pdfjs = await this.getPdfjsLib();
       const uint8Array = new Uint8Array(buffer);
       const loadingTask = pdfjs.getDocument({
         data: uint8Array,
