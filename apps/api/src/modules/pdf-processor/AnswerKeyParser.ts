@@ -4,8 +4,8 @@ export interface ParsedAnswerKey {
 }
 
 export class AnswerKeyParser {
-  // Regex headers indicating answer key section at line start
-  private static KEY_HEADER_REGEX = /(?:^|\n)\s*(?:(?:Answer|Solution|Key|Correct\s*Answer)\s*(?:Keys?|Sheets?|Answers?|Solutions?)?|Answers?|Solutions?|KEYS?)\s*[\:\-\.]?\s*(?:\n|$)/i;
+  // Regex headers strictly indicating an Answer Key section at the bottom of the document
+  private static KEY_HEADER_REGEX = /(?:^|\n)\s*(?:(?:Answer|Solution|Correct\s*Answer)\s*(?:Keys?|Sheets?|Answers?|Solutions?)|Answers?\s*Key|Answers?\s*:|Solutions?\s*:|KEY\s*:)\s*[\:\-\.]?\s*(?:\n|$)/i;
 
   private static DIGIT_MAP: Record<string, string> = { '1': 'A', '2': 'B', '3': 'C', '4': 'D' };
 
@@ -14,14 +14,12 @@ export class AnswerKeyParser {
     let keySectionText = '';
 
     const matchIndex = rawText.search(this.KEY_HEADER_REGEX);
-    let searchContent = rawText;
-    if (matchIndex !== -1) {
-      keySectionText = rawText.slice(matchIndex);
-      searchContent = keySectionText;
+    if (matchIndex === -1) {
+      return { keyMap, keySectionText: '' };
     }
 
-    const lines = searchContent.split(/\r?\n/);
-    // Matches: 1. A, 1-A, 1: A, 1) A, 1 (A), 1 [A], 1. (A), 1 A, Q1. A, Q.1 (A), 1. 1, 1 (1)
+    keySectionText = rawText.slice(matchIndex);
+    const lines = keySectionText.split(/\r?\n/);
     const entryRegex = /(?:Q\.?\s*)?(\d+)\s*[\.\:\-\)\s\,\|\t]*\s*(?:\(([A-Da-d1-4])\)|\[([A-Da-d1-4])\]|([A-Da-d1-4]))(?=[\s\,\.\|\;\)\-\n]|$)/gi;
 
     for (const line of lines) {
@@ -40,11 +38,6 @@ export class AnswerKeyParser {
           }
         }
       }
-    }
-
-    // Fallback: If no explicit header was found but we found >= 3 consecutive answer entries, treat as answer section
-    if (matchIndex === -1 && keyMap.size >= 3) {
-      keySectionText = rawText.slice(Math.floor(rawText.length * 0.7));
     }
 
     return { keyMap, keySectionText };

@@ -30,13 +30,21 @@ export class TextExtractor {
         // Detect green background rectangles from operator list
         const greenBoxes: { minX: number; minY: number; maxX: number; maxY: number }[] = [];
         let currentFillRGB: [number, number, number] = [0, 0, 0];
+        let currentStrokeRGB: [number, number, number] = [0, 0, 0];
 
         const isGreenColor = (r: number, g: number, b: number) => {
           const rn = r > 1 ? r / 255 : r;
           const gn = g > 1 ? g / 255 : g;
           const bn = b > 1 ? b / 255 : b;
-          // Green dominant color (light green pastel #dcfce7, lime, dark green, etc.)
-          return gn > 0.35 && (gn > rn * 1.05 && gn > bn * 1.04);
+          // Green dominant color (light green pastel #dcfce7, lime, dark green, emerald, etc.)
+          return gn > 0.3 && (gn > rn * 1.04 && gn > bn * 1.03);
+        };
+
+        const cmykToRgb = (c: number, m: number, y: number, k: number): [number, number, number] => {
+          const r = 255 * (1 - c) * (1 - k);
+          const g = 255 * (1 - m) * (1 - k);
+          const b = 255 * (1 - y) * (1 - k);
+          return [r, g, b];
         };
 
         for (let i = 0; i < opList.fnArray.length; i++) {
@@ -45,9 +53,15 @@ export class TextExtractor {
 
           if (fn === pdfjs.OPS.setFillRGBColor && args && args.length >= 3) {
             currentFillRGB = [args[0], args[1], args[2]];
+          } else if (fn === pdfjs.OPS.setStrokeRGBColor && args && args.length >= 3) {
+            currentStrokeRGB = [args[0], args[1], args[2]];
+          } else if (fn === pdfjs.OPS.setFillCMYKColor && args && args.length >= 4) {
+            currentFillRGB = cmykToRgb(args[0], args[1], args[2], args[3]);
+          } else if (fn === pdfjs.OPS.setStrokeCMYKColor && args && args.length >= 4) {
+            currentStrokeRGB = cmykToRgb(args[0], args[1], args[2], args[3]);
           } else if (
             (fn === pdfjs.OPS.constructPath || fn === pdfjs.OPS.fill || fn === pdfjs.OPS.fillStroke || fn === pdfjs.OPS.rectangle) &&
-            isGreenColor(currentFillRGB[0], currentFillRGB[1], currentFillRGB[2])
+            (isGreenColor(currentFillRGB[0], currentFillRGB[1], currentFillRGB[2]) || isGreenColor(currentStrokeRGB[0], currentStrokeRGB[1], currentStrokeRGB[2]))
           ) {
             if (fn === pdfjs.OPS.constructPath && args) {
               const minX = args[2];
