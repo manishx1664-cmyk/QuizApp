@@ -12,9 +12,10 @@ export interface RawParsedQuestion {
 }
 
 export class QuestionParser {
-  private static QUESTION_START_REGEX = /(?:^|\n)\s*(?:(?:Question|Q)\s*)?(\d+)[\.\:\)\-]\s+/i;
+  private static QUESTION_HEADER_REGEX = /(?:^|\n|\r)\s*(?:(?:Question|Que|Qno|Q\.No|Problem|Item|MCQ)\s*[\.\:\s\-]*\s*(\d+)|Q\.?\s*(\d+)[\.\:\)\-\s]|(?:\((\d+)\)|\[(\d+)\]|(\d+))\s*[\.\:\)\-\]\}\=\.])/gi;
   private static EXPLANATION_REGEX = /(?:Solution|Sol|Explanation|Exp|Reason|Rationale|Note)\s*[\:\-]\s*(.+)$/is;
   private static ANSWER_LINE_REGEX = /(?:^|\n)\s*(?:(?:Correct\s*(?:Option|Answer)?|Ans(?:wer)?|Right\s*(?:Option|Answer)?|Key|Sol(?:ution)?)\s*(?:is|was|[\:\-\.\=])\s*(?:Option\s*)?\(?([A-Da-d1-4])\)?|Option\s*\(?([A-Da-d1-4])\)?\s*(?:is|was)\s*(?:the\s*)?correct)/i;
+  private static OPTION_START_REGEX = /(?:^|\n|\s+)(?:([\u2713\u2714\u221A\u25CF\u25C9\u25CE\*\•\d])\s+)?(?:\(([A-Da-d1-4]|i{1,4}|I{1,4}|iv|IV)\)|\[([A-Da-d1-4]|i{1,4}|I{1,4}|iv|IV)\]|([A-Da-d]|i{1,4}|I{1,4}|iv|IV)\s*[\.\:\)\-\]])\s*/i;
 
   public static parseQuestions(contentWithoutAnswerKey: string): RawParsedQuestion[] {
     const rawQuestions: RawParsedQuestion[] = [];
@@ -25,15 +26,16 @@ export class QuestionParser {
     const digitToLetter: Record<string, string> = { '1': 'A', '2': 'B', '3': 'C', '4': 'D' };
 
     // Find all question header matches and their indices
-    const regex = /(?:^|\n)\s*(?:(?:Question|Q)\s*)?(\d+)[\.\:\)\-]\s+/gi;
     const matches: { startIndex: number; headerEndIndex: number; qNum: number }[] = [];
     let match: RegExpExecArray | null;
+    this.QUESTION_HEADER_REGEX.lastIndex = 0;
 
-    while ((match = regex.exec(text)) !== null) {
+    while ((match = this.QUESTION_HEADER_REGEX.exec(text)) !== null) {
+      const rawNum = match[1] || match[2] || match[3] || match[4] || match[5];
       matches.push({
         startIndex: match.index,
         headerEndIndex: match.index + match[0].length,
-        qNum: parseInt(match[1], 10)
+        qNum: parseInt(rawNum, 10)
       });
     }
 
@@ -66,10 +68,7 @@ export class QuestionParser {
       }
 
       // In remaining block, separate question prompt from options
-      // Matches: "A. ", "A) ", "(A)", "3  A. ", "✓ A. ", "* A. "
-      const optionStartRegex = /(?:^|\n)\s*(?:[\u2713\u2714\u221A\u25CF\u25C9\u25CE\*\•\d]\s+)?(?:\([A-Da-d]\)|\[[A-Da-d]\]|[A-Da-d][\.\:\)\-])\s+/;
-      const optionMatch = block.match(optionStartRegex);
-
+      const optionMatch = block.match(this.OPTION_START_REGEX);
       let questionPrompt = block;
       let optionsBlock = '';
 
