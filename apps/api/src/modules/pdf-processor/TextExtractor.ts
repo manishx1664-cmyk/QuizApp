@@ -83,8 +83,18 @@ export class TextExtractor {
           }
         }
 
-        // Process text items and check if they sit inside a green highlight box
-        const pageItems = textContent.items as any[];
+        // Sort text items by top-to-bottom (Y descending) and left-to-right (X ascending) reading order
+        const pageItems = (textContent.items as any[]).slice().sort((a, b) => {
+          const yA = a.transform ? a.transform[5] : 0;
+          const yB = b.transform ? b.transform[5] : 0;
+          if (Math.abs(yA - yB) > 4) {
+            return yB - yA;
+          }
+          const xA = a.transform ? a.transform[4] : 0;
+          const xB = b.transform ? b.transform[4] : 0;
+          return xA - xB;
+        });
+
         let lastY: number | null = null;
         let pageText = '';
         let currentLineIsHighlighted = false;
@@ -97,10 +107,10 @@ export class TextExtractor {
 
           const isItemInGreenBox = greenBoxes.some((box) => {
             return (
-              itemX + itemW >= box.minX - 15 &&
-              itemX <= box.maxX + 15 &&
-              itemY + itemH >= box.minY - 15 &&
-              itemY <= box.maxY + 15
+              itemX + itemW >= box.minX - 10 &&
+              itemX <= box.maxX + 10 &&
+              itemY >= box.minY - 10 &&
+              itemY <= box.maxY + 10
             );
           });
 
@@ -132,7 +142,7 @@ export class TextExtractor {
       }
 
       const text = fullText.trim();
-      if (text.length > 50 && (hasVisualHighlights || numPages > 1)) {
+      if (text.length > 50) {
         return {
           text,
           pageCount: numPages,
